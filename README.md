@@ -109,8 +109,10 @@ aqw-guild-bot/
 │   │   └── register_command.json
 │   └── test_commands.py
 │
-├── AQW_Guild_Bot_Design_Document_Terraform.md   # Full technical design document
-└── SterlingStan_Handoff_Instructions.md         # Maintainer handoff guide
+└── documentation/
+    ├── AQW_Guild_Bot_Design_Document_Terraform.md   # Full technical design document
+    ├── SterlingStan_Handoff_Instructions.md         # Maintainer handoff guide
+    └── SterlingStan_Guild_Overview.md               # Non-technical guild leadership overview
 ```
 
 ---
@@ -273,5 +275,6 @@ terraform apply \
 
 | Document | Description |
 |---|---|
-| `AQW_Guild_Bot_Design_Document_Terraform.md` | Full technical design: architecture, data model, all Terraform modules, deployment, observability, and extension roadmap |
-| `SterlingStan_Handoff_Instructions.md` | Step-by-step guide for transferring maintainership |
+| `documentation/AQW_Guild_Bot_Design_Document_Terraform.md` | Full technical design: architecture, data model, all Terraform modules, deployment, observability, and extension roadmap |
+| `documentation/SterlingStan_Handoff_Instructions.md` | Step-by-step guide for transferring maintainership |
+| `documentation/SterlingStan_Guild_Overview.md` | Non-technical overview for guild leadership |
