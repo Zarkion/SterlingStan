@@ -6,7 +6,9 @@ import boto3
 import pytest
 from moto import mock_aws
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _repo_root)
+sys.path.insert(0, os.path.join(_repo_root, "executor"))
 
 EVENTS_DIR = os.path.join(os.path.dirname(__file__), "events")
 OFFICER_ROLE_ID = "777777777777777777"
@@ -71,6 +73,31 @@ def reset_secrets_cache(monkeypatch):
     except ImportError:
         pass
     yield
+
+
+def make_interaction(command_name, options=None, user_id="444444444444444444",
+                     username="TestPlayer", roles=None, resolved=None):
+    data = {"id": "555555555555555555", "name": command_name,
+            "type": 1, "options": options or []}
+    if resolved:
+        data["resolved"] = resolved
+    return {
+        "type": 2, "application_id": "111111111111111111",
+        "token": "test_interaction_token", "id": "999999999999999999",
+        "guild_id": "222222222222222222", "channel_id": "333333333333333333",
+        "member": {
+            "user": {"id": user_id, "username": username, "discriminator": "0"},
+            "roles": roles or [],
+        },
+        "data": data,
+    }
+
+
+@pytest.fixture
+def registered_member(dynamodb_table, secrets_mock):
+    from shared.db import register_member
+    register_member("444444444444444444", "TestPlayer", "HeroOfLore")
+    return {"user_id": "444444444444444444", "discord_tag": "TestPlayer", "ign": "HeroOfLore"}
 
 
 @pytest.fixture

@@ -1,4 +1,5 @@
 import pytest
+from conftest import make_interaction, OFFICER_ROLE_ID
 
 
 class TestSecrets:
@@ -111,6 +112,374 @@ class TestDb:
         profiles = scan_all_profiles()
         assert len(profiles) == 2
         assert {p["ign"] for p in profiles} == {"HeroOne", "HeroTwo"}
+
+
+class TestRegisterCommand:
+
+    def test_register_success_returns_profile_embed(self, dynamodb_table):
+        from commands.register import handle
+        result = handle(make_interaction("register", options=[
+            {"name": "ign", "type": 3, "value": "HeroOfLore"}
+        ]))
+        assert "embeds" in result
+
+    def test_register_stores_ign_in_dynamo(self, dynamodb_table):
+        from commands.register import handle
+        from shared.db import get_member_profile
+        handle(make_interaction("register", options=[
+            {"name": "ign", "type": 3, "value": "HeroOfLore"}
+        ]))
+        assert get_member_profile("444444444444444444")["profile"]["ign"] == "HeroOfLore"
+
+    def test_register_rejects_ign_too_short(self, dynamodb_table):
+        from commands.register import handle
+        result = handle(make_interaction("register", options=[
+            {"name": "ign", "type": 3, "value": "ab"}
+        ]))
+        assert result.get("flags") == 64
+
+    def test_register_rejects_ign_too_long(self, dynamodb_table):
+        from commands.register import handle
+        result = handle(make_interaction("register", options=[
+            {"name": "ign", "type": 3, "value": "a" * 21}
+        ]))
+        assert result.get("flags") == 64
+
+    def test_register_rejects_non_alphanumeric_ign(self, dynamodb_table):
+        from commands.register import handle
+        result = handle(make_interaction("register", options=[
+            {"name": "ign", "type": 3, "value": "Hero!Lore"}
+        ]))
+        assert result.get("flags") == 64
+
+    def test_register_rejects_already_registered(self, registered_member):
+        from commands.register import handle
+        result = handle(make_interaction("register", options=[
+            {"name": "ign", "type": 3, "value": "AnotherHero"}
+        ]))
+        assert result.get("flags") == 64
+
+
+class TestSetClassesCommand:
+
+    def test_setclasses_saves_up_to_5_classes(self, registered_member):
+        from commands.register import handle_classes
+        from shared.db import get_member_profile
+        handle_classes(make_interaction("setclasses", options=[
+            {"name": "classes", "type": 3, "value": "Void Highlord, Stonecrusher, Archpaladin"}
+        ]))
+        profile = get_member_profile("444444444444444444")
+        assert profile["classes"] == ["Void Highlord", "Stonecrusher", "Archpaladin"]
+
+    def test_setclasses_rejects_more_than_5(self, registered_member):
+        from commands.register import handle_classes
+        result = handle_classes(make_interaction("setclasses", options=[
+            {"name": "classes", "type": 3, "value": "A, B, C, D, E, F"}
+        ]))
+        assert result.get("flags") == 64
+
+    def test_setclasses_rejects_empty_input(self, registered_member):
+        from commands.register import handle_classes
+        result = handle_classes(make_interaction("setclasses", options=[
+            {"name": "classes", "type": 3, "value": "   "}
+        ]))
+        assert result.get("flags") == 64
+
+    def test_setclasses_rejects_not_registered(self, dynamodb_table):
+        from commands.register import handle_classes
+        result = handle_classes(make_interaction("setclasses", options=[
+            {"name": "classes", "type": 3, "value": "Void Highlord"}
+        ]))
+        assert result.get("flags") == 64
+
+
+class TestUpdateCommand:
+
+    def test_update_ign_returns_updated_profile_embed(self, registered_member):
+        from commands.register import handle_update
+        from shared.db import get_member_profile
+        result = handle_update(make_interaction("update", options=[
+            {"name": "ign", "type": 3, "value": "NewHeroName"}
+        ]))
+        assert "embeds" in result
+        assert get_member_profile("444444444444444444")["profile"]["ign"] == "NewHeroName"
+
+    def test_update_classes_updates_classes(self, registered_member):
+        from commands.register import handle_update
+        from shared.db import get_member_profile
+        handle_update(make_interaction("update", options=[
+            {"name": "classes", "type": 3, "value": "Stonecrusher"}
+        ]))
+        assert get_member_profile("444444444444444444")["classes"] == ["Stonecrusher"]
+
+    def test_update_requires_at_least_one_option(self, registered_member):
+        from commands.register import handle_update
+        result = handle_update(make_interaction("update", options=[]))
+        assert result.get("flags") == 64
+
+    def test_update_rejects_not_registered(self, dynamodb_table):
+        from commands.register import handle_update
+        result = handle_update(make_interaction("update", options=[
+            {"name": "ign", "type": 3, "value": "NewHero"}
+        ]))
+        assert result.get("flags") == 64
+
+
+class TestVerifierHandler:
+
+    @pytest.fixture
+    def signing_key(self):
+        from nacl.signing import SigningKey
+        return SigningKey.generate()
+
+    @pytest.fixture
+    def verifier_secrets(self, signing_key, aws, monkeypatch):
+        import boto3
+        monkeypatch.setenv("SECRET_NAME", "sterlingstan/discord")
+        monkeypatch.setenv("EXECUTOR_FUNCTION_NAME", "sterlingstan-executor")
+        client = boto3.client("secretsmanager", region_name="us-east-1")
+        client.create_secret(
+            Name="sterlingstan/discord",
+            SecretString=__import__("json").dumps({
+                "DISCORD_BOT_TOKEN": "test_token",
+                "DISCORD_PUBLIC_KEY": signing_key.verify_key.encode().hex(),
+                "DISCORD_APP_ID": "111111111111111111",
+                "DISCORD_GUILD_ID": "222222222222222222",
+                "OFFICER_ROLE_ID": OFFICER_ROLE_ID,
+            }),
+        )
+        yield
+
+    def _signed_event(self, signing_key, body_dict):
+        import json
+        body = json.dumps(body_dict)
+        timestamp = "1234567890"
+        signed = signing_key.sign(f"{timestamp}{body}".encode())
+        return {
+            "headers": {
+                "x-signature-ed25519": signed.signature.hex(),
+                "x-signature-timestamp": timestamp,
+            },
+            "body": body,
+        }
+
+    def test_warmup_event_returns_200(self, aws_credentials):
+        from verifier.handler import handler
+        result = handler({"source": "sterlingstan.warmup"}, None)
+        assert result["statusCode"] == 200
+
+    def test_invalid_signature_returns_401(self, verifier_secrets):
+        from verifier.handler import handler
+        result = handler({
+            "headers": {
+                "x-signature-ed25519": "aa" * 64,
+                "x-signature-timestamp": "1234567890",
+            },
+            "body": "{}",
+        }, None)
+        assert result["statusCode"] == 401
+
+    def test_ping_returns_type_1(self, verifier_secrets, signing_key):
+        from verifier.handler import handler
+        event = self._signed_event(signing_key, {"type": 1})
+        result = handler(event, None)
+        assert result["statusCode"] == 200
+        assert __import__("json").loads(result["body"]) == {"type": 1}
+
+    def test_slash_command_returns_type_5(self, verifier_secrets, signing_key, mocker):
+        from verifier import handler as verifier_handler
+        mocker.patch.object(verifier_handler.lambda_client, "invoke")
+        event = self._signed_event(signing_key, {"type": 2, "data": {"name": "profile"}})
+        result = verifier_handler.handler(event, None)
+        assert result["statusCode"] == 200
+        assert __import__("json").loads(result["body"]) == {"type": 5}
+
+    def test_slash_command_invokes_executor_async(self, verifier_secrets, signing_key, mocker):
+        from verifier import handler as verifier_handler
+        mock_invoke = mocker.patch.object(verifier_handler.lambda_client, "invoke")
+        event = self._signed_event(signing_key, {"type": 2, "data": {"name": "profile"}})
+        verifier_handler.handler(event, None)
+        mock_invoke.assert_called_once()
+        assert mock_invoke.call_args.kwargs["InvocationType"] == "Event"
+
+
+class TestExecutorHandler:
+
+    def test_dispatch_routes_to_correct_handler(self, mocker):
+        from executor import handler as executor_handler
+        mocker.patch.object(executor_handler, "post_followup")
+        mock_cmd = mocker.MagicMock(return_value={"content": "ok"})
+        mocker.patch.dict(executor_handler.DISPATCH, {"register": mock_cmd})
+        executor_handler.handler(make_interaction("register"), None)
+        mock_cmd.assert_called_once()
+
+    def test_unknown_command_returns_error_content(self, mocker):
+        from executor import handler as executor_handler
+        captured = {}
+        def fake_followup(app_id, token, data):
+            captured["data"] = data
+        mocker.patch.object(executor_handler, "post_followup", side_effect=fake_followup)
+        executor_handler.handler(make_interaction("nonexistent_command"), None)
+        assert "nonexistent_command" in captured["data"]["content"]
+
+    def test_post_followup_patches_correct_url(self, mocker):
+        from executor.handler import post_followup
+        mock_urlopen = mocker.patch("urllib.request.urlopen")
+        post_followup("111111111111111111", "test_token", {"content": "hello"})
+        call_args = mock_urlopen.call_args[0][0]
+        assert "111111111111111111" in call_args.full_url
+        assert "test_token" in call_args.full_url
+        assert call_args.method == "PATCH"
+
+
+class TestAdminCommand:
+
+    def test_adminset_creates_new_member_profile(self, dynamodb_table, secrets_mock):
+        from commands.admin import handle_set
+        from shared.db import get_member_profile
+        target_id = "999999999999999999"
+        result = handle_set(make_interaction(
+            "adminset",
+            options=[
+                {"name": "user", "type": 6, "value": target_id},
+                {"name": "ign",  "type": 3, "value": "NewHero"},
+            ],
+            roles=[OFFICER_ROLE_ID],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "NewPlayer"}}}},
+        ))
+        assert "embeds" in result
+        assert get_member_profile(target_id)["profile"]["ign"] == "NewHero"
+
+    def test_adminset_updates_existing_member(self, registered_member):
+        from commands.admin import handle_set
+        from shared.db import get_member_profile
+        target_id = "444444444444444444"
+        handle_set(make_interaction(
+            "adminset",
+            options=[
+                {"name": "user", "type": 6, "value": target_id},
+                {"name": "ign",  "type": 3, "value": "UpdatedHero"},
+            ],
+            roles=[OFFICER_ROLE_ID],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "TestPlayer"}}}},
+        ))
+        assert get_member_profile(target_id)["profile"]["ign"] == "UpdatedHero"
+
+    def test_adminset_rejects_non_officer(self, dynamodb_table, secrets_mock):
+        from commands.admin import handle_set
+        target_id = "999999999999999999"
+        result = handle_set(make_interaction(
+            "adminset",
+            options=[{"name": "user", "type": 6, "value": target_id}],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "Someone"}}}},
+        ))
+        assert result.get("flags") == 64
+
+    def test_adminremove_returns_confirmation_embed(self, registered_member):
+        from commands.admin import handle_remove
+        target_id = "444444444444444444"
+        result = handle_remove(make_interaction(
+            "adminremove",
+            options=[{"name": "user", "type": 6, "value": target_id}],
+            roles=[OFFICER_ROLE_ID],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "TestPlayer"}}}},
+        ))
+        assert "components" in result
+        assert len(result["components"][0]["components"]) == 2
+
+    def test_adminremove_rejects_non_officer(self, registered_member):
+        from commands.admin import handle_remove
+        target_id = "444444444444444444"
+        result = handle_remove(make_interaction(
+            "adminremove",
+            options=[{"name": "user", "type": 6, "value": target_id}],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "TestPlayer"}}}},
+        ))
+        assert result.get("flags") == 64
+
+
+class TestRosterCommand:
+
+    def test_roster_returns_embed_listing_members(self, dynamodb_table, secrets_mock):
+        from commands.roster import handle
+        from shared.db import register_member
+        register_member("111", "PlayerOne", "HeroOne")
+        register_member("222", "PlayerTwo", "HeroTwo")
+        result = handle(make_interaction("roster", roles=[OFFICER_ROLE_ID]))
+        assert "embeds" in result
+        embed_text = str(result["embeds"][0])
+        assert "HeroOne" in embed_text
+        assert "HeroTwo" in embed_text
+
+    def test_roster_returns_error_if_no_members(self, dynamodb_table, secrets_mock):
+        from commands.roster import handle
+        result = handle(make_interaction("roster", roles=[OFFICER_ROLE_ID]))
+        assert result.get("flags") == 64
+
+    def test_roster_rejects_non_officer(self, dynamodb_table, secrets_mock):
+        from commands.roster import handle
+        result = handle(make_interaction("roster"))
+        assert result.get("flags") == 64
+
+
+class TestProfileCommand:
+
+    def test_profile_returns_embed_for_registered_user(self, registered_member):
+        from commands.profile import handle
+        result = handle(make_interaction("profile"))
+        assert "embeds" in result
+
+    def test_profile_returns_error_if_not_registered(self, dynamodb_table):
+        from commands.profile import handle
+        result = handle(make_interaction("profile"))
+        assert result.get("flags") == 64
+
+    def test_lookup_returns_target_profile(self, registered_member):
+        from commands.profile import handle_lookup
+        target_id = "444444444444444444"
+        result = handle_lookup(make_interaction(
+            "lookup",
+            options=[{"name": "user", "type": 6, "value": target_id}],
+            roles=[OFFICER_ROLE_ID],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "TestPlayer"}}}},
+        ))
+        assert "embeds" in result
+
+    def test_lookup_rejects_non_officer(self, registered_member):
+        from commands.profile import handle_lookup
+        target_id = "444444444444444444"
+        result = handle_lookup(make_interaction(
+            "lookup",
+            options=[{"name": "user", "type": 6, "value": target_id}],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "TestPlayer"}}}},
+        ))
+        assert result.get("flags") == 64
+
+    def test_lookup_returns_error_if_target_not_registered(self, dynamodb_table, secrets_mock):
+        from commands.profile import handle_lookup
+        target_id = "999999999999999999"
+        result = handle_lookup(make_interaction(
+            "lookup",
+            options=[{"name": "user", "type": 6, "value": target_id}],
+            roles=[OFFICER_ROLE_ID],
+            resolved={"members": {target_id: {"user": {"id": target_id, "username": "Ghost"}}}},
+        ))
+        assert result.get("flags") == 64
+
+
+class TestUnregisterCommand:
+
+    def test_unregister_returns_confirmation_embed(self, registered_member):
+        from commands.register import handle_unregister
+        result = handle_unregister(make_interaction("unregister"))
+        assert "components" in result
+        buttons = result["components"][0]["components"]
+        assert len(buttons) == 2
+
+    def test_unregister_rejects_not_registered(self, dynamodb_table):
+        from commands.register import handle_unregister
+        result = handle_unregister(make_interaction("unregister"))
+        assert result.get("flags") == 64
 
 
 class TestEmbeds:
