@@ -748,11 +748,14 @@ aqw-guild-bot/
 │   ├── embeds.py                    # Discord embed dict builders
 │   └── checks.py                    # Officer role verification
 │
-└── tests/
-    ├── events/                      # Sample Lambda event payloads for local testing
-    │   ├── profile_command.json
-    │   └── register_command.json
-    └── test_commands.py             # Unit tests for command handlers
+├── tests/
+│   ├── events/                      # Sample Lambda event payloads for local testing
+│   │   ├── profile_command.json
+│   │   └── register_command.json
+│   ├── conftest.py                  # pytest fixtures: mocked AWS resources, interaction payloads
+│   └── test_commands.py             # Unit tests for command handlers
+│
+└── requirements-dev.txt             # Dev/test dependencies (pytest, moto, etc.) — not packaged into Lambdas
 ```
 
 ---

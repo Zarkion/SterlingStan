@@ -107,7 +107,10 @@ aqw-guild-bot/
 │   ├── events/                      # Sample Lambda event payloads for local testing
 │   │   ├── profile_command.json
 │   │   └── register_command.json
+│   ├── conftest.py                  # pytest fixtures: mocked AWS resources, interaction payloads
 │   └── test_commands.py
+│
+├── requirements-dev.txt             # Dev/test dependencies (pytest, moto, etc.) — not packaged into Lambdas
 │
 └── documentation/
     ├── AQW_Guild_Bot_Design_Document_Terraform.md   # Full technical design document

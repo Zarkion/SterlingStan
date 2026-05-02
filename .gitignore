@@ -1,1 +1,20 @@
 CLAUDE.md
+PLAN.md
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Lambda build artifacts
+infrastructure/modules/lambda/builds/
+
+# Misc
+response.json
+.env
+.DS_Store

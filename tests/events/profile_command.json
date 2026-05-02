@@ -1,0 +1,22 @@
+{
+  "type": 2,
+  "application_id": "111111111111111111",
+  "token": "test_interaction_token",
+  "id": "888888888888888888",
+  "guild_id": "222222222222222222",
+  "channel_id": "333333333333333333",
+  "member": {
+    "user": {
+      "id": "444444444444444444",
+      "username": "TestPlayer",
+      "discriminator": "0"
+    },
+    "roles": []
+  },
+  "data": {
+    "id": "666666666666666666",
+    "name": "profile",
+    "type": 1,
+    "options": []
+  }
+}

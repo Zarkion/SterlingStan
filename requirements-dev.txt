@@ -1,0 +1,5 @@
+pytest>=8.0
+moto[dynamodb,secretsmanager]>=5.0
+pytest-mock
+PyNaCl>=1.5.0
+boto3>=1.26.0
